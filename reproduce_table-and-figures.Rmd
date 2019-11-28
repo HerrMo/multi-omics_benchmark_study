@@ -1,0 +1,456 @@
+---
+title: "paper: tables and figures"
+output: pdf_document
+  #fig_caption: yes
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(tidyr)
+library(forcats)
+library(kableExtra)
+library(cowplot)
+
+get_cv_means <- function(df, meas = "cindex.uno") {
+  meas <- sym(meas)
+  df %>%
+    group_by(task.id, learner.id) %>%
+    summarise(cv_mean = mean(!! enquo(meas)))
+}
+
+load("data/merged-results.RData")
+```
+
+```{r prepro, echo = FALSE}
+print(getwd())
+
+lrns <- c("Lasso", "ipflasso*", "prioritylasso*", "prioritylasso favoring*",
+          "grridge*", "SGL*", "glmboost", "CoxBoost", "CoxBoost favoring*",
+          "rfsrc", "ranger", "blockForest*", "Clinical only", "Kaplan-Meier")
+
+meth <- c("Standard Lasso", "TS IPF-Lasso", "priority-Lasso",
+          "priority-Lasso", "GRridge", "SGL", "Model-based boosting",
+          "Likelihood-based boosting", "Likelihood-based boosting",
+          "Random forest", "Random forest", "Block forest", "Cox model",
+          "Kaplan-Meier estimate")
+
+packs <- c("glmnet::cv.glmnet", "ipflasso::cvr.ipflasso", "priortiylasso::prioritylasso",
+           "priortiylasso::prioritylasso", "GRridge::grridge", "SGL::cvSGL", "mboost::glmboost",
+           "CoxBoost::cv.CoxBoost", "CoxBoost::cv.CoxBoost", "randomForestSRC::tune",
+           "tuneRanger::tuneMtryfast","blockForest::blockfor", "survival::coxph", "survival::survival")
+
+tune <- c(rep("10-f-CV", 9), "oob", "oob", "oob", "no", "no")
+
+df_lrns <- cbind(lrns, meth, packs, tune)
+
+tab1 <- knitr::kable(df_lrns,
+             caption = "Summary of learners used for the bechmark experiment.
+                       The use of group structure information is indicated with *.",
+             col.names = c("learner", "method", "package::function", "tuning"), format = "latex", booktabs = T)
+
+tab1
+```
+
+
+
+```{r tab-2, echo = FALSE, message = FALSE}
+get_grp_size = function(group, data, sep = "_") {
+  gr_vars <- grep(paste0(sep, group), names(data))
+  length(gr_vars)
+}
+get_blocks2 <- function(data, groups = c("clinical", "cnv", "mirna", "mutation", "rna")) {
+  blength <- lapply(groups, function(group, data) get_grp_size(group, data), data = data)
+  nam <- groups
+  
+  if (any(blength == 0)) {
+    ind <- which(blength == 0)
+    blength <- blength[-ind]
+    nam <- nam[-ind]
+  }
+  
+  blocks <- rep(seq_along(blength), times = blength)
+  blocks <- lapply(seq_along(blength), function(x) which(blocks == x))
+  names(blocks) <- nam
+  blocks
+}
+
+datsets <- list.files("data/raw-data")
+datsets <- datsets[!datsets %in% c("PCPG.RData", "PRAD.RData", "TGCT.RData"
+                                   , "THCA.RData", "THYM.RData")]
+
+ls <- vector(mode = "list", length = 18L)
+names(ls) <- str_split(datsets, "\\.", simplify = TRUE)[, 1]
+count <- 1
+for (dat in datsets[1:18]) {
+  df <- str_split(dat, "\\.")[[1]][1]
+  load(paste0("data/raw-data/", dat))
+  blocks <- get_blocks2(get(df))
+  p_b <- sapply(blocks, length)
+  n <- dim(get(df))[1]
+  p <- dim(get(df))[2]
+  n_eff <- sum(get(df)["status"])
+  r_eff <- n_eff/n
+  ls[[count]] <- round(c(p_b, p = p, n = n, n_eff = n_eff, r_eff = r_eff), 2)
+  count <- count + 1
+  rm(list = df)
+}
+
+df_dats <- as.data.frame(t(as.data.frame(ls))) %>%
+  rownames_to_column("data")
+
+cancers <- c("Bladder Urothelial", "Breast Invasive C.", "Colon Adenocarcinoma", "Esophageal C.", "Head-Neck Squamous CC.", "Kidney Renal Clear CC.", "Cervical Kidney RP. CC.", "Acute Myeloid Leukemia", "Low Grade Glioma", "Liver Hepatocellular C.", "Lung Adenocarcinoma", "Lung Squamous CC.", "Ovarian Cancer ", "Pancreatic AC.", "Sarcoma", "Skin Cutaneous M.", "Stomach AC.", "Uterine Corpus EC.")
+
+df_dats <- cbind(cancers, df_dats)
+df_dats <- df_dats[, c(2, 1, 3:11)]
+
+colnames(df_dats) <- c("dataset", "cancer", "clin.", "cnv",  "mirna",  "mutation",  "rna",  "p",  "n",  "n_e",  "r_e")
+
+tab2 <- knitr::kable(df_dats, caption = "Summary of the datasets used for the benchmark experiment. The third to the seventh column show the number of features in the feature group, the seventh column the total amount of features. The last three columns show, in this order, the number of observations, the number of effective cases and the ratio of the number of effective cases and the number of observations. C. = Carcinoma, CC. = Cell Carcinoma, PP = Renal Papilla, AC. = Adenocarcinoma, M. = Melanoma, EC. = Endometrial Carcinoma.", format = "latex", booktabs = T)
+
+tab2
+```
+
+```{r tab-3, echo = FALSE, }
+df_mean_sgl <- data.frame(data = c("LAML", "LIHC", "PAAD", "SARC", "mean"),
+                          cindex = c(0.496, 0.533, 0.650, 0.629, 0.58),
+                          ibrier = c(0.231, 0.198, 0.255, 0.278, 0.24), 
+                          time = c(1.9, 9.0, 4.5, 7.5, 5.7),
+                          all = c(8149, 3617, 1483, 3081, 4083),
+                          clinical = c(0.5, 0.3, 3.2, 2.7, 1.7),
+                          cnv = c(7822, 3250, 62, 1906, 3260),
+                          mirna = c(4.7, 28, 30, 51, 28),
+                          rna = c(0, 264, 12, 40, 79), 
+                          mutation = c(323, 75, 1375, 1082, 714))
+
+tab3 <- knitr::kable(df_mean_sgl, caption = "Peformance of SGL on four small datasets. The first four rows show the performance per dataset, the last row the average performance over these four datasets. The fourth column shows the computation time in hours and the fifth column the total number of selected features, the last five columns the number of selected features for each feature group.", format = "latex", booktabs = T)
+
+tab3
+
+```
+
+```{r tab-4, echo = FALSE}
+tab1 <- 
+  df_res %>% 
+  group_by(learner.id) %>%
+  summarise(cindex_m = mean(cindex.uno),
+            cindex_sd = sd(cindex.uno),
+            ibrier_m = mean(ibrier),
+            ibrier_sd = sd(ibrier),
+            time = mean(timetrain)/60,
+            all = round(mean(featselc_default), 0),
+            clin = round(mean(featselc_clin), 0),
+            cnv = round(mean(featselc_cnv), 0),
+            mirna = round(mean(featselc_mirna), 0),
+            rna = round(mean(featselc_rna), 0),
+            mut = round(mean(featselc_mutation), 0)) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  arrange(desc(cindex_m)) 
+
+tab1[["clin"]][c(1, 8, 9, 12)] <- rep("-", 4)
+tab1[["all"]][c(1, 8, 9, 12)] <- rep("-", 4)
+for (lrn in c("cnv", "mirna", "rna", "mut")) {
+  tab1[[lrn]][c(1, 2, 8, 9, 12)] <- rep("-", 5)
+}
+
+tab4 <- knitr::kable(tab1, caption = "Average performance. The values are obtained by sequentally averaging over the CV-Iterations and datasets. The time is measured in minutes. For learners not yielding model coefficients, the correspoding measures are set to '-'. Column 'all' represents the total number of selected features, the subsequent columns show the numbers of selected features of the respective groups. The total number of feautres differs from the sum of features in each groups due to rounding errors.", digits = c(3,3,3,3,3,2,1,1,1,1,1,1), format = "latex", booktabs = T)
+
+tab4
+```
+
+\newpage
+
+```{r tab-5, echo = FALSE, message = FALSE}
+
+
+clins <- 
+ get_cv_means(df_res) %>%
+ group_by(task.id) %>%
+ filter(learner.id == "Clinical only") %>%
+ select(cv_mean)
+
+tab2_1 <- data.frame()
+for (tas in unique(df_res$task.id)) {
+temp <- 
+  get_cv_means(df_res) %>%
+  filter(task.id == tas & cv_mean >= clins[clins$task.id == tas,][[2]]) %>% 
+  filter(cv_mean == max(cv_mean)) %>%
+  arrange(learner.id != "Clinical only" | desc(cv_mean)) 
+tab2_1 <- rbind.data.frame(tab2_1, temp)}
+
+
+tab2_1 <- left_join(tab2_1, clins, by = "task.id")
+
+
+clins2 <-
+ get_cv_means(df_res, "ibrier") %>%
+ group_by(task.id) %>%
+ filter(learner.id == "Clinical only") %>%
+ select(cv_mean)
+
+tab2_2 <- data.frame()
+for (tas in unique(df_res$task.id)) {
+temp2 <-
+  get_cv_means(df_res, "ibrier") %>%
+  filter(task.id == tas & cv_mean <= clins2[clins$task.id == tas,][[2]]) %>%
+  filter(cv_mean == min(cv_mean)) %>%
+  arrange(learner.id != "Clinical only" | desc(cv_mean))
+tab2_2 <- rbind.data.frame(tab2_2, temp2)
+}
+
+tab2_2 <- left_join(tab2_2, clins2, by = "task.id")
+
+tab2 <-
+  left_join(tab2_1, tab2_2, "task.id") %>%
+  filter(learner.id.x != "Clinical only" & learner.id.y != "Clinical only")
+
+names(tab2) <- c("cancer",
+                 "learner", "cindex", "ref.", 
+                 "learner", "ibrier", "ref.")
+
+tab5 <- knitr::kable(tab2, caption = "Datasets for which there is at least one method using the group structure and outperforming the Cox model. The second and fifth column show the best performing learners for the respective dataset and measure. The 'cindex' and 'ibrier' column show the performance values. In the 'ref.' columns the corresponding cindex and ibrier performance values of the reference Cox model only using clinical variables are displayed.", digits = 3, format = "latex", booktabs = T)
+
+tab5
+```
+
+\newpage
+
+```{r tab-6, echo=FALSE, warning=TRUE}
+df_vs <- 
+  df_res %>%
+  filter(!learner.id %in% c("Kaplan-Meier", "Clinical only"))
+
+df_vs$type <- NULL
+df_vs$type[df_vs$learner.id %in% c("Lasso", "glmboost", "CoxBoost", "rfsrc", "ranger")] <- "naive"
+df_vs$type[!df_vs$learner.id %in% c("Lasso", "glmboost", "CoxBoost", "rfsrc", "ranger")] <- "structured"
+
+tab6_1 <- 
+  df_vs %>% 
+  group_by(task.id, type) %>%
+  summarise(cindex = round(mean(cindex.uno), 3)) %>%
+  spread(key = type, value = cindex)
+
+tab6_2 <- 
+  df_vs %>% 
+  group_by(task.id, type) %>%
+  summarise(ibrier = round(mean(ibrier), 3)) %>%
+  spread(key = type, value = ibrier)
+
+
+tab6 <- cbind.data.frame(tab6_1, tab6_2[,-1])
+names(tab6) <- c(names(tab6)[1:3], c("naive2", "structured2"))
+tab6 <- tab6 %>%
+  mutate(
+    structured_c = ifelse(structured > naive,
+                          kableExtra::cell_spec(structured, "latex", bold = TRUE),
+                          kableExtra::cell_spec(structured, "latex", bold = FALSE)),
+    naive_c = ifelse(structured < naive,
+                     kableExtra::cell_spec(naive, "latex", bold = TRUE),
+                     kableExtra::cell_spec(naive, "latex", bold = FALSE)),
+    structured_b = ifelse(structured2 < naive2,
+                          kableExtra::cell_spec(structured2, "latex", bold = TRUE),
+                          kableExtra::cell_spec(structured2, "latex", bold = FALSE)),
+    naive_b = ifelse(structured2 > naive2,
+                     kableExtra::cell_spec(naive2, "latex", bold = TRUE),
+                     kableExtra::cell_spec(naive2, "latex", bold = FALSE)))
+tab6 <- tab6[,c(1,6:9)]
+
+caption <- "Naive learners vs. structured learners: The performance of structured learners, i.e. learners using the group structure, and naive learners are compared for every dataset. The cindex and ibrier columns show the performance values for the corresponding dataset and learner types. Bold values indicate greater values for the given dataset."
+names(tab6) <- c("task", rep(c("structured", "naive"), 2))
+tab6 <- knitr::kable(tab6, format = "latex", caption = caption, escape = FALSE, booktabs = T, linesep ="")
+
+tab6
+``` 
+
+```{r fig-1, echo = FALSE, fig.width=9,fig.height=7, fig.cap="Computation times in seconds by datasets."}
+tt_means <- 
+  get_cv_means(df_res, "timetrain") %>%
+  mutate(
+    approach = case_when(
+      learner.id %in% c("Kaplan-Meier", "Clinical only") ~ "reference",
+      learner.id %in% c("rfsrc", "ranger", "blockForest") ~ "rf",
+      learner.id %in% c("CoxBoost", "CoxBoost favoring", "glmboost") ~ "boosting",
+      learner.id %in% c("prioritylasso", "prioritylasso favoring", 
+                        "grridge", "ipflasso", "Lasso")  ~ "pen. regr."
+  ))
+
+task_size_order <- c("BRCA", "LUAD", "LUSC", "HNSC", "LGG", "UCEC", "BLCA", "STAD", "SKCM", "KIRC",
+                     "OV", "KIRP", "COAD", "LIHC", "SARC", "PAAD", "ESCA", "LAML")
+tt_means$task.id <- factor(tt_means$task.id, levels = rev(task_size_order))
+names(tt_means) <- c("task.id", "learner", "mean", "approach")
+
+cbbPalette <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+lty <- c("solid", "solid", "dashed", "dotted", "solid","dashed", "dashed", "dotted", "dotdash", "solid", "dashed")
+lty2 <- c("solid", "dashed", "dotted")
+p_t_lines <-
+  ggplot(data = filter(tt_means, !learner %in% c("Kaplan-Meier", "Clinical only")),
+         aes(x = task.id, y = mean, group = learner)) +
+  geom_line(aes(linetype = learner, colour = learner), size = 0.75) +
+  geom_point(size = 1) + 
+  labs(x = "Dataset", y = "Time in seconds") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        legend.position = "top",
+        axis.text.y = element_text(angle = 90),
+        axis.text.x = element_text(angle = 45, vjust = 0.75),
+        axis.title.x = element_blank())
+
+p_t_lines_log <-
+  ggplot(data = filter(tt_means, !learner %in% c("Kaplan-Meier", "Clinical only")), 
+         aes(x = task.id, y = log(mean), group = learner)) +
+  geom_line(aes(linetype = learner, colour = learner), size = 0.75) +
+  geom_point(size = 1) +
+  labs(x = "Data set", y = "Time in seconds (log scale)") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        legend.position = "none", 
+        axis.text.y = element_text(angle = 90),
+        axis.text.x = element_text(angle = 45, vjust = 0.75),
+        axis.title.x = element_blank())
+
+
+fig1 <- plot_grid(p_t_lines, p_t_lines_log,
+          labels = c('A', 'B'),
+          label_size = 12,
+          align = "v",
+          nrow = 2,
+          rel_heights = c(1.25, 1))
+
+fig1
+```
+
+
+```{r fig-2, echo = FALSE, fig.cap="Sparsity on group level."}
+long_groups <-   
+  df_res %>% 
+  group_by(task.id, learner.id) %>%
+  summarise(clin = mean(featselc_clin),
+            cnv = mean(featselc_cnv),
+            mirna = mean(featselc_mirna),
+            rna = mean(featselc_rna),
+            mut = mean(featselc_mutation)) %>%
+  tidyr::gather(clin, cnv, mirna, rna, mut, key = "group", value = "mean")
+
+legend = c("clinical", "cnv", "mirna", "mutation", "rna")
+
+fig2 <- ggplot(data = long_groups %>%
+         filter(
+           !learner.id %in%
+             c(
+               "grridge",
+               "Kaplan-Meier",
+               "blockForest",
+               "rfsrc",
+               "ranger",
+               "Clinical only"
+             )
+         )) +
+  geom_boxplot(aes(x = group, y = mean, fill = group)) +
+  facet_wrap(vars(learner.id),
+             nrow = 2) +
+  labs(y = "Number of features") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.title.x = element_blank()) +
+  scale_fill_discrete(name = "",
+                      labels = legend)
+
+fig2
+```
+
+```{r fig-3, echo = FALSE, fig.cap = "Performance distributions of the learnes - A: cindex. B: ibrier. C: Total amount of selected features; only learners yielding model coefficients are included and grridge is excluded since it yields models on a much larger scale. The solid red and dashed black horizontal lines correspond to the median performance of the clinical-only-model and the Kaplan-Meier-estimate. Colours indicate affiliation to one of the general modeling approaches: penalised regression (blue), boosting (orange), random forest (green), reference methods (black). Abbreviations: KM = Kaplan-Meier, Lasso = Lasso, glmB = glmboost, CoxB = CoxBoost, CoxPH = Clinical only, prior = prioritylasso, prior_f = prioritylasso favoring, IPF = ipflasso, CoxB_f = CoxB favoring, GRr = grridge, blockForest = BF, rfsrc = rfsrc, ranger = ranger.", fig.height = 7.5}
+
+cindex <- get_cv_means(df_res) 
+ibrier <- get_cv_means(df_res, "ibrier")
+spars <-
+  get_cv_means(df_res, "featselc_default") %>%
+  filter(!learner.id %in% c("Kaplan-Meier",
+                            "Clinical only",
+                            "grridge",
+                            "blockForest",
+                            "rfsrc",
+                            "ranger"))
+
+x_nams <- c(
+  "KM",
+  "Lasso",
+  "glmB",
+  "CoxB",
+  "CoxPH",
+  "prior",
+  "prior_f",
+  "CoxB_f",
+  "GRr",
+  "BF",
+  "rfsrc",
+  "ranger",
+  "IPF"
+  )
+
+legends <- paste(x_nams, levels(cindex$learner.id), sep = " = ")
+
+levels(cindex$learner.id) <- x_nams
+levels(ibrier$learner.id) <- x_nams
+levels(spars$learner.id) <- x_nams
+
+order_by_appr <- c("KM", "CoxPH", "Lasso", "prior", "prior_f", "IPF", "GRr", "glmB", "CoxB", "CoxB_f", "rfsrc", "ranger", "BF")
+cindex$learner.id <- factor(cindex$learner.id, levels = order_by_appr)
+ibrier$learner.id <-  factor(ibrier$learner.id, levels = order_by_appr)
+spars$learner.id <- factor(spars$learner.id, levels = order_by_appr)
+
+colours <-
+  c(rep("#000000", 2),
+    rep("#56B4E9", 5),
+    rep("#E69F00", 3),
+     rep("#009E73", 3))
+
+
+p_cindex <-
+  ggplot(data = cindex) +
+  geom_boxplot(aes(x = learner.id, y = cv_mean), fill = colours) +
+  geom_hline(yintercept = 0.5982247, color = "red") +
+  geom_hline(yintercept = 0.5, lty = "dashed") +
+  labs(y = "cindex") +
+  theme_bw() +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 5),
+    axis.title.x = element_blank()
+  ) 
+
+
+p_ibrier <- 
+  ggplot(data = ibrier) + 
+  geom_boxplot(aes(x = learner.id, y = cv_mean), fill = colours) +
+  geom_hline(yintercept = 0.1812635, color = "red") +
+  geom_hline(yintercept = 0.1989360, lty = "dashed") +
+  labs(y = "ibrier") +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.title.x = element_blank())
+        
+colours2 <- c(rep("#56B4E9", 4), rep("#E69F00", 3))
+
+p_spars <- 
+  ggplot(data = spars) +
+  geom_boxplot(aes(x = learner.id, y = cv_mean), fill = colours2) +
+  theme_bw() +
+  labs(y = "No. of features") +
+  theme(legend.position = "none",
+        axis.title.x = element_blank())
+
+plot_grid(p_cindex, p_ibrier, p_spars,
+          labels = c('A', 'B', 'C'),
+          label_size = 12,
+          align = "v",
+          nrow = 3)
+```
+
+
+
+
