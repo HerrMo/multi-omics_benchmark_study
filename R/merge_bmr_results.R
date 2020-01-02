@@ -50,7 +50,7 @@ for (task_id in datsets) {
 
 # impute missings values
 bmr_df_lists <- lapply(bmr_lists, as.data.frame)
-bmr_df_lists <- lapply(bmr_df_lists, impute_missings2)
+bmr_df_lists <- lapply(bmr_df_lists, impute_missings2, na_rat = 0.2)
 
 df_res <- do.call(rbind.data.frame, bmr_df_lists)
 df_res <- as.data.table(df_res)

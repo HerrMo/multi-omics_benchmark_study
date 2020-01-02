@@ -3,7 +3,7 @@
 
 # 1. impute missing values -------------------------------------------------------
 
-impute_missings2 <- function(df_bmr) {
+impute_missings2 <- function(df_bmr, na_rat) {
   # max_errs <- apply(df_bmr[,-c(1:3, 5)], 2, max, na.rm = TRUE)
   # min_cindex <- min(df_bmr[df_bmr$learner.id != "Kaplanmeier", "cindex.uno"], na.rm = TRUE) 
   
@@ -23,7 +23,7 @@ impute_missings2 <- function(df_bmr) {
     if (any(is.na(df_tmp))) {
       n_fails <- sum(apply(df_tmp, 1, FUN = function(x) any(is.na(x))))
       r_fails <- n_fails/nrow(df_tmp)
-      if (r_fails > 0.2) {
+      if (r_fails > na_rat) {
         for (mea in meas) {
           if (mea %in% c("cindex.uno", "ibrier")) {
             df_tmp[is.na(df_tmp[, mea]), mea] <- errs[names(errs) == mea]
