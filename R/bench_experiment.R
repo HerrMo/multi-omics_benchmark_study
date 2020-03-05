@@ -10,7 +10,7 @@
 
 # Setup ---------------------------------------------------
 
-library(checkpoint)
+library(checkpoint) # get package snapshots used packages
 checkpoint("2019-04-17", project = getwd())
 
 library(batchtools)
@@ -20,12 +20,12 @@ packs <- c("mlr", "pec", "glmnet", "mboost", "prioritylasso", "CoxBoost",
            "GRridge", "tuneRanger", "SGL", "blockForest", "survAUC", "riskRegression")
 
 # unlink("bench_exp", recursive = TRUE)
-regis <- makeExperimentRegistry("bench_exp", # change
+regis <- makeExperimentRegistry("bench_exp", 
                                 packages = packs,
                                 source = "ancillary_code_bench.R")
 
 
-# 1. Partial reproduction -----------------------------------------------------
+# 0. Partial reproduction -----------------------------------------------------
 
 # If only parts of the benchmark experiment are to be run, e.g. for reproducing 
 # single results due to computation times, change settings as desired 
@@ -43,41 +43,57 @@ regis <- makeExperimentRegistry("bench_exp", # change
 
 # 1. Tasks and problems--------------------------------------------------------
 
-# OpenML dataset ids to querry 
-# ids <- c()[partition$datsets]
-# 
-# for (i in seq_along(ids)) {
-# 
-#   # download dataset
-#   dat <- getOMLDataSet(ids[i])
-#   
-#   # which is more convenient?
-#   task <- convertOMLDataSetToMlr(obj = dat, 
-#                                  task.type = "Survival analysis",
-#                                  target = c("time", "status"),
-#                                  fix.colnames = FALSE)
-#   # convert to mlr task
-#   task <- makeSurvTask(id = data_nam, # should be assigned to name?
-#                        data = dat[, -1],
-#                        target = c("time", "status")) # patient id?
-#   
-#   # adding task as batch problem
-#   addProblem(name = getTaskId(task), data = task)
-# }
+# OpenML dataset ids to querry
+
+load("data/datset_ids.RData")
 
 nams <- c("LAML", "BLCA", "LGG",  "BRCA", "COAD", "ESCA", 
           "HNSC", "KIRC", "KIRP", "LIHC", "LUAD", "LUSC", 
           "OV", "PAAD", "SARC", "SKCM", "STAD", "UCEC")
 
-# nams <- nams[partition$datsets]
+# For partial reproduction:
+# nams <- nams[partition$datsets] 
 
 for (nam in nams) {
-  load(paste0(getwd(), "/bench_data/", nam, ".RData"))
-  task <- get(nam)[, -1]
-  task <- makeSurvTask(id = nam, data = task, target = c("time", "status"))
+
+  # download dataset
+  dat_part1 <- getOMLDataSet(datset_ids[[nam]][[1]])
+  dat_part2 <- getOMLDataSet(datset_ids[[nam]][[2]])
+
+  dat <- cbind.data.frame(dat_part1, dat_part2)
+  
+  if (nam = "BRCA") {
+    dat_part3 <- getOMLDataSet(datset_ids[[nam]][[3]])
+    dat <- cbind.data.frame(dat, dat_part3)
+  }
+  
+  task <- convertOMLDataSetToMlr(obj = dat,
+                                 task.type = "Survival analysis",
+                                 target = c("time", "status"),
+                                 fix.colnames = FALSE)
+  # convert to mlr task
+  task <- makeSurvTask(id = nam, 
+                       data = task[, -1], # delet patient code
+                       target = c("time", "status"))
+
+  # adding task as batch problem
   addProblem(name = getTaskId(task), data = task)
 }
-rm(list = c(nams))
+
+
+# ------------------
+# get data from disk
+
+# for (nam in nams) {
+#   load("data/", nam, ".RData"))
+#   task <- get(nam)[, -1]
+#   task <- makeSurvTask(id = nam, data = task, target = c("time", "status"))
+#   addProblem(name = getTaskId(task), data = task)
+# }
+# ------------------
+
+rm(list = c(nams)) # the loaded datasets occupy a lot memory, so delete
+
 
 # 2. Algorithms and learners --------------------------------------------------
 
@@ -118,7 +134,7 @@ l_lrn_args = list("lrn_km" = list(cl = "surv.kaplanmeier",
                                         id = "Clinical only",
                                         predict.type = "prob",
                                         clinicals = NULL,
-                                        nfolds = 10), # only used if p_clin > n_train
+                                        nfolds = 10), # only used if p_clin > n_train (which is not the case)
                   "lrn_ts_prior" = list(cl = "surv.ts.priorlasso",
                                         id = "Prioritylasso",
                                         blocks = NULL,
@@ -160,11 +176,12 @@ l_lrn_args = list("lrn_km" = list(cl = "surv.kaplanmeier",
 
 # You can also choose specific lrns (random selection will only take place if
 # no manual selection is done)
-# all_lrns <- names(l_lrn_args) # default is to not select manually (all lrns)
+
+# all_lrns <- names(l_lrn_args) # default is not to select manually (i.e., all lrns)
 # l_lrn_args <- l_lrn_args[all_lrns]
 
 # if (length(l_lrn_args) == 14) {
-#   l_lrn_args <- l_lrn_args[partition$datsets]
+#   l_lrn_args <- l_lrn_args[partition$datsets] # check if $datsets correct argument
 # }
 
 
