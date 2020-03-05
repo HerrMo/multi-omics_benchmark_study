@@ -1,7 +1,9 @@
 ---
-title: "paper: tables and figures"
+title: "multi-omics benchmark: tables, figures, and tests"
 output: pdf_document
   #fig_caption: yes
+header-includes: 
+- \usepackage{placeins}
 ---
 
 ```{r setup, include = FALSE}
@@ -14,6 +16,7 @@ library(tidyr)
 library(forcats)
 library(kableExtra)
 library(cowplot)
+library(scales)
 
 get_cv_means <- function(df, meas = "cindex.uno") {
   meas <- sym(meas)
@@ -22,12 +25,19 @@ get_cv_means <- function(df, meas = "cindex.uno") {
     summarise(cv_mean = mean(!! enquo(meas)))
 }
 
+bench_t_test <- function(dat_set, meth1, meth2, meas = "m_cindex") {
+  spreaded <- dat_set %>% filter(learner.id %in% c(meth1, meth2))  %>% tidyr::spread("task.id", meas)
+  tt1 <- unlist(spreaded[1, -1])
+  tt2 <- unlist(spreaded[2, -1])
+  t.test(tt1, tt2, paired = TRUE, conf.level = 0.99)
+}
+
 load("data/merged-results.RData")
 ```
 
-```{r prepro, echo = FALSE}
-print(getwd())
+\FloatBarrier
 
+```{r prepro, echo = FALSE}
 lrns <- c("Lasso", "ipflasso*", "prioritylasso*", "prioritylasso favoring*",
           "grridge*", "SGL*", "glmboost", "CoxBoost", "CoxBoost favoring*",
           "rfsrc", "ranger", "blockForest*", "Clinical only", "Kaplan-Meier")
@@ -54,8 +64,6 @@ tab1 <- knitr::kable(df_lrns,
 
 tab1
 ```
-
-
 
 ```{r tab-2, echo = FALSE, message = FALSE}
 get_grp_size = function(group, data, sep = "_") {
@@ -133,85 +141,155 @@ tab3
 ```
 
 ```{r tab-4, echo = FALSE}
-tab1 <- 
-  df_res %>% 
-  group_by(learner.id) %>%
-  summarise(cindex_m = mean(cindex.uno),
-            cindex_sd = sd(cindex.uno),
-            ibrier_m = mean(ibrier),
-            ibrier_sd = sd(ibrier),
-            time = mean(timetrain)/60,
-            all = round(mean(featselc_default), 0),
-            clin = round(mean(featselc_clin), 0),
-            cnv = round(mean(featselc_cnv), 0),
-            mirna = round(mean(featselc_mirna), 0),
-            rna = round(mean(featselc_rna), 0),
-            mut = round(mean(featselc_mutation), 0)) %>%
-  mutate_if(is.numeric, round, 3) %>%
-  arrange(desc(cindex_m)) 
-
-tab1[["clin"]][c(1, 8, 9, 12)] <- rep("-", 4)
-tab1[["all"]][c(1, 8, 9, 12)] <- rep("-", 4)
-for (lrn in c("cnv", "mirna", "rna", "mut")) {
-  tab1[[lrn]][c(1, 2, 8, 9, 12)] <- rep("-", 5)
+ci <- function(n, mean, sd) {
+  ci <- 0.95
+  se <- sd/sqrt(n)
+  low <- mean - se * qt(ci + (1 - ci)/2, df = n - 1)
+  up <- mean + se * qt(ci + (1 - ci)/2, df = n - 1)
+  round(c(low, up), 3)
 }
 
-tab4 <- knitr::kable(tab1, caption = "Average performance. The values are obtained by sequentally averaging over the CV-Iterations and datasets. The time is measured in minutes. For learners not yielding model coefficients, the correspoding measures are set to '-'. Column 'all' represents the total number of selected features, the subsequent columns show the numbers of selected features of the respective groups. The total number of feautres differs from the sum of features in each groups due to rounding errors.", digits = c(3,3,3,3,3,2,1,1,1,1,1,1), format = "latex", booktabs = T)
+tab1 <- 
+  df_res %>%
+  group_by(task.id, learner.id) %>% 
+  summarise(cv_mean_cindex = mean(cindex.uno),
+            cv_mean_ibrier = mean(ibrier),
+            cv_mean_time = mean(timetrain),
+            cv_mean_all = mean(featselc_default),
+            cv_mean_clin = mean(featselc_clin),
+            cv_mean_cnv = mean(featselc_cnv),
+            cv_mean_mirna = mean(featselc_mirna),
+            cv_mean_mutation = mean(featselc_mutation),
+            cv_mean_rna = mean(featselc_rna)) %>%
+  group_by(learner.id) %>%
+  summarise(cindex_m = mean(cv_mean_cindex),
+            cindex_sd = sd(cv_mean_cindex),
+            cindex_ci = paste0("[", ci(18, cindex_m, cindex_sd)[1], ", ", ci(18, cindex_m, cindex_sd)[2], "]"),
+            ibrier_m = mean(cv_mean_ibrier),
+            ibrier_sd = round(sd(cv_mean_ibrier), 3),
+            ibrier_ci = paste0("[", ci(18, ibrier_m, ibrier_sd)[1], ", ", ci(18, ibrier_m, ibrier_sd)[2], "]"),
+            time = round(mean(cv_mean_time)/60, 0),
+            all = round(mean(cv_mean_all), 0),
+            clin = round(mean(cv_mean_clin), 0),
+            cnv = round(mean(cv_mean_cnv), 0),
+            mirna = round(mean(cv_mean_mirna), 0),
+            rna = round(mean(cv_mean_rna), 0),
+            mut = round(mean(cv_mean_mutation), 0)) %>%
+  mutate_if(is.numeric, round, 3) %>%
+  arrange(desc(cindex_m))
+
+tab1[["clin"]][c(1, 8, 9, 13)] <- rep("-", 4)
+tab1[["all"]][c(1, 8, 9, 13)] <- rep("-", 4)
+for (lrn in c("cnv", "mirna", "rna", "mut")) {
+  tab1[[lrn]][c(1, 2, 8, 9, 13)] <- rep("-", 5)
+}
+
+tab4 <- knitr::kable(tab1, caption = "Average performance. The values are obtained by sequentally averaging over the CV-Iterations and datasets. The time is measured in minutes. For learners not yielding model coefficients, the correspoding measures are set to '-'. Column 'all' represents the total number of selected features, the subsequent columns show the numbers of selected features of the respective groups. The total number of feautres differs from the sum of features in each groups due to rounding errors.", format = "latex", booktabs = T) %>%
+  kableExtra::landscape()
 
 tab4
 ```
 
-\newpage
-
 ```{r tab-5, echo = FALSE, message = FALSE}
-
-
-clins <- 
+clins_m <- 
  get_cv_means(df_res) %>%
  group_by(task.id) %>%
  filter(learner.id == "Clinical only") %>%
  select(cv_mean)
 
-tab2_1 <- data.frame()
-for (tas in unique(df_res$task.id)) {
-temp <- 
-  get_cv_means(df_res) %>%
-  filter(task.id == tas & cv_mean >= clins[clins$task.id == tas,][[2]]) %>% 
-  filter(cv_mean == max(cv_mean)) %>%
-  arrange(learner.id != "Clinical only" | desc(cv_mean)) 
-tab2_1 <- rbind.data.frame(tab2_1, temp)}
+clin_cis <- 
+  df_res %>%
+  filter(learner.id == "Clinical only") %>%
+  group_by(task.id) %>%
+  summarise(ci_clins = paste0("[", 
+                              round(Rmisc::CI(cindex.uno)[3], 3), 
+                              ", ", 
+                              round(Rmisc::CI(cindex.uno)[1], 3), "]"))
 
+clins <- left_join(clins_m, clin_cis, by = "task.id")
+  
+tab2_1 <- data.frame() 
+for (tas in unique(df_res$task.id)) {
+  temp <- 
+    get_cv_means(df_res) %>%
+    filter(task.id == tas & cv_mean >= clins_m[clins_m$task.id == tas,][[2]]) %>% 
+    filter(cv_mean == max(cv_mean)) %>%
+    arrange(learner.id != "Clinical only" | desc(cv_mean))
+  temp <-
+    temp %>%
+    mutate(ci_l = df_res %>% 
+                  filter(task.id == tas, learner.id == temp$learner.id) %>%
+                  summarise(ci_l = paste0("[", 
+                                        round(Rmisc::CI(cindex.uno)[3], 3), 
+                                        ", ", 
+                                        round(Rmisc::CI(cindex.uno)[1], 3), "]")) %>%
+                  pull(ci_l))
+  
+  tab2_1 <- rbind.data.frame(tab2_1, temp)
+}
 
 tab2_1 <- left_join(tab2_1, clins, by = "task.id")
 
 
-clins2 <-
+clins2_m <-
  get_cv_means(df_res, "ibrier") %>%
  group_by(task.id) %>%
  filter(learner.id == "Clinical only") %>%
  select(cv_mean)
 
+clin2_cis <- 
+  df_res %>%
+  filter(learner.id == "Clinical only") %>%
+  group_by(task.id) %>%
+  summarise(ci_clins = paste0("[", 
+                              round(Rmisc::CI(ibrier)[3], 3), 
+                              ", ", 
+                              round(Rmisc::CI(ibrier)[1], 3), "]"))
+
+clins2 <- left_join(clins2_m, clin2_cis, by = "task.id")
+
 tab2_2 <- data.frame()
 for (tas in unique(df_res$task.id)) {
 temp2 <-
   get_cv_means(df_res, "ibrier") %>%
-  filter(task.id == tas & cv_mean <= clins2[clins$task.id == tas,][[2]]) %>%
+  filter(task.id == tas & cv_mean <= clins2[clins2_m$task.id == tas,][[2]]) %>%
   filter(cv_mean == min(cv_mean)) %>%
   arrange(learner.id != "Clinical only" | desc(cv_mean))
+
+temp2 <- 
+  temp2 %>%
+  mutate(ci_l = df_res %>% 
+                  filter(task.id == tas, learner.id == temp2$learner.id) %>%
+                  summarise(ci_l = paste0("[", 
+                                        round(Rmisc::CI(ibrier)[3], 3), 
+                                        ", ", 
+                                        round(Rmisc::CI(ibrier)[1], 3), "]")) %>%
+                  pull(ci_l))
+
 tab2_2 <- rbind.data.frame(tab2_2, temp2)
 }
 
 tab2_2 <- left_join(tab2_2, clins2, by = "task.id")
 
+
+
 tab2 <-
   left_join(tab2_1, tab2_2, "task.id") %>%
-  filter(learner.id.x != "Clinical only" & learner.id.y != "Clinical only")
-
+  mutate(
+    cindex = ifelse(cv_mean.x.x > cv_mean.y.x,
+                    kableExtra::cell_spec(round(cv_mean.x.x, 3), "latex", bold = TRUE),
+                    kableExtra::cell_spec(round(cv_mean.x.x, 3), "latex", bold = FALSE)),
+    ibrier = ifelse(cv_mean.x.y < cv_mean.y.y,
+                    kableExtra::cell_spec(round(cv_mean.x.y, 3), "latex", bold = TRUE),
+                    kableExtra::cell_spec(round(cv_mean.x.y, 3), "latex", bold = FALSE)))
+  
+tab2 <- tab2[, c(1, 2, 12, 4, 5, 6, 7, 13, 9, 10, 11)]
 names(tab2) <- c("cancer",
-                 "learner", "cindex", "ref.", 
-                 "learner", "ibrier", "ref.")
+                 "learner", "cindex", "ci", "ref.", "ci", 
+                 "learner", "ibrier", "ci", "ref.", "ci")
 
-tab5 <- knitr::kable(tab2, caption = "Datasets for which there is at least one method using the group structure and outperforming the Cox model. The second and fifth column show the best performing learners for the respective dataset and measure. The 'cindex' and 'ibrier' column show the performance values. In the 'ref.' columns the corresponding cindex and ibrier performance values of the reference Cox model only using clinical variables are displayed.", digits = 3, format = "latex", booktabs = T)
+tab5 <- knitr::kable(tab2, caption = "Datasets for which there is at least one method using the group structure and outperforming the Cox model. The second and fifth column show the best performing learners for the respective dataset and measure. The 'cindex' and 'ibrier' column show the performance values. In the 'ref.' columns the corresponding cindex and ibrier performance values of the reference Cox model only using clinical variables are displayed.", digits = 3, format = "latex", booktabs = T, escape = FALSE, linesep = "") %>%
+  kableExtra::landscape()
 
 tab5
 ```
@@ -223,7 +301,7 @@ df_vs <-
   df_res %>%
   filter(!learner.id %in% c("Kaplan-Meier", "Clinical only"))
 
-df_vs$type <- NULL
+df_vs$type <- NA
 df_vs$type[df_vs$learner.id %in% c("Lasso", "glmboost", "CoxBoost", "rfsrc", "ranger")] <- "naive"
 df_vs$type[!df_vs$learner.id %in% c("Lasso", "glmboost", "CoxBoost", "rfsrc", "ranger")] <- "structured"
 
@@ -265,6 +343,8 @@ tab6 <- knitr::kable(tab6, format = "latex", caption = caption, escape = FALSE, 
 tab6
 ``` 
 
+\FloatBarrier
+
 ```{r fig-1, echo = FALSE, fig.width=9,fig.height=7, fig.cap="Computation times in seconds by datasets."}
 tt_means <- 
   get_cv_means(df_res, "timetrain") %>%
@@ -288,31 +368,34 @@ lty2 <- c("solid", "dashed", "dotted")
 p_t_lines <-
   ggplot(data = filter(tt_means, !learner %in% c("Kaplan-Meier", "Clinical only")),
          aes(x = task.id, y = mean, group = learner)) +
+  scale_shape_manual(values = 1:nlevels(tt_means$learner)) +
   geom_line(aes(linetype = learner, colour = learner), size = 0.75) +
-  geom_point(size = 1) + 
+  geom_point(aes(shape = learner), size = 1) + 
   labs(x = "Dataset", y = "Time in seconds") +
   theme_bw() +
   theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(), 
         legend.position = "top",
-        axis.text.y = element_text(angle = 90),
+        #axis.text.y = element_text(angle = 90),
         axis.text.x = element_text(angle = 45, vjust = 0.75),
         axis.title.x = element_blank())
 
 p_t_lines_log <-
   ggplot(data = filter(tt_means, !learner %in% c("Kaplan-Meier", "Clinical only")), 
-         aes(x = task.id, y = log(mean), group = learner)) +
+         aes(x = task.id, y = mean, group = learner)) +
+  scale_shape_manual(values = 1:nlevels(tt_means$learner)) +
   geom_line(aes(linetype = learner, colour = learner), size = 0.75) +
-  geom_point(size = 1) +
+  geom_point(aes(shape = learner), size = 1) + 
   labs(x = "Data set", y = "Time in seconds (log scale)") +
   theme_bw() +
   theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.position = "none", 
-        axis.text.y = element_text(angle = 90),
+        #axis.text.y = element_text(angle = 90),
         axis.text.x = element_text(angle = 45, vjust = 0.75),
-        axis.title.x = element_blank())
-
+        axis.title.x = element_blank()) +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x, n = 3),
+              labels = trans_format("log10", math_format(10^.x)))
 
 fig1 <- plot_grid(p_t_lines, p_t_lines_log,
           labels = c('A', 'B'),
@@ -358,7 +441,8 @@ fig2 <- ggplot(data = long_groups %>%
   theme(legend.position = "none",
         axis.title.x = element_blank()) +
   scale_fill_discrete(name = "",
-                      labels = legend)
+                      labels = legend) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.75))
 
 fig2
 ```
@@ -451,6 +535,51 @@ plot_grid(p_cindex, p_ibrier, p_spars,
           nrow = 3)
 ```
 
+\FloatBarrier
+
+```{r tests} 
+# Comparing blockForest with CoxBoost favoring and CoxPH-Modell
+# - ttest, paired, two-sided, conf.level = 0.99
+
+# cindex 
+bench_t_test(get_cv_means(df_res), "blockForest", "Clinical only", "cv_mean")
+
+bench_t_test(get_cv_means(df_res), "blockForest", "CoxBoost favoring", "cv_mean")
+
+# ibrier
+bench_t_test(get_cv_means(df_res, "ibrier"), "blockForest", "Clinical only", "cv_mean")
+
+bench_t_test(get_cv_means(df_res, "ibrier"), "blockForest", "CoxBoost favoring", "cv_mean")
+
+# Comparing structured vs. naive learners
+# - ttest, unpaired, one-sided, conf.level = 0.99
+
+m_cindex <- 
+  get_cv_means(df_res) %>%
+  group_by(learner.id) %>%
+  summarise(cindex_m = mean(cv_mean)) %>%
+  arrange(desc(cindex_m))
+
+m_cindex$type <- c("struc", "non", rep("struc", 5), rep("naive", 5), "non")
+df_struc <- m_cindex %>% filter(type == "struc")
+df_naive <- m_cindex %>% filter(type == "naive")
+
+m_ibrier <- 
+  get_cv_means(df_res, "ibrier") %>%
+  group_by(learner.id) %>%
+  summarise(ibrier_m = mean(cv_mean))
+
+m_ibrier$type <- c("non", rep("naive", 3), "non", rep("struc", 5), rep("naive", 2), "struc")
+df_struc2 <- m_ibrier %>% filter(type == "struc")
+df_naive2 <- m_ibrier %>% filter(type == "naive")
+
+
+# cindex
+t.test(df_struc[[2]], df_naive[[2]], alternative = "greater", conf.level = 0.99)
+
+# ibrier
+t.test(df_struc2[[2]], df_naive2[[2]], alternative = "less", conf.level = 0.99)
+```
 
 
 
