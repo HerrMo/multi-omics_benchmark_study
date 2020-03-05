@@ -55,6 +55,7 @@ bmr_df_lists <- lapply(bmr_df_lists, impute_missings2, na_rat = 0.2)
 df_res <- do.call(rbind.data.frame, bmr_df_lists)
 df_res <- as.data.table(df_res)
 df_res[learner.id == "Kaplanmeier" & cindex.uno == 0, "cindex.uno"] <- 0.5 # set cindex to 0.5 for kaplanmeier, since mlr doesn't do this
+df_res[learner.id == "CoxBoost" & cindex.uno == 0, "cindex.uno"] <- 0.5 # for mstop = 0, set cindex to 0.5
 
 nicenam <- c("Kaplan-Meier", "Lasso", "glmboost", "CoxBoost", "Clinical only",
              "prioritylasso", "prioritylasso favoring", "CoxBoost favoring", 
@@ -65,3 +66,5 @@ nicenam <- c("Kaplan-Meier", "Lasso", "glmboost", "CoxBoost", "Clinical only",
 
 levels(df_res$learner.id) <- nicenam
 head(df_res)
+
+# save(df_res, file = "data/merged-results.RData")
