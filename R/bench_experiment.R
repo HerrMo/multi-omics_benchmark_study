@@ -22,7 +22,7 @@ packs <- c("mlr", "pec", "glmnet", "mboost", "prioritylasso", "CoxBoost",
 # unlink("bench_exp", recursive = TRUE)
 regis <- makeExperimentRegistry("bench_exp", 
                                 packages = packs,
-                                source = "ancillary_code_bench.R")
+                                  source = "ancillary_code_bench.R")
 
 
 # 0. Partial reproduction -----------------------------------------------------
