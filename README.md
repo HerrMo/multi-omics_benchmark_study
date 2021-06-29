@@ -1,7 +1,7 @@
 # Code to the multi-omics benchmark study by Herrmann et al.
 
 This repo allows to
-- download the (preprocessed) data used in study 
+- download the (preprocessed) data used in the study 
 - reproduce the results (table, figures etc.) presented in the paper 
 - rerun the entire benchmark experiment
 
