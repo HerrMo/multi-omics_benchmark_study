@@ -73,7 +73,7 @@ for (nam in nams) {
                                  fix.colnames = FALSE)
   # convert to mlr task
   task <- makeSurvTask(id = nam, 
-                       data = task[, -1], # delet patient code
+                       data = task[, -1], # delete patient code
                        target = c("time", "status"))
 
   # adding task as batch problem
